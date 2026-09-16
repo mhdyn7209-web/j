@@ -7330,7 +7330,7 @@ end
 -- NOTIFY (XOCU)
 -- ===============================
 function notifyKick(displayName, username)
-	Library:Notify({ Title = "XOCU ", Content = displayName .. " (" .. username .. ") has been kicked", Duration = 6,
+	Library:Notify({ Title = "Premuim", Content = displayName .. " (" .. username .. ") has been kicked", Duration = 6,
 	 })
 end
 
@@ -7430,7 +7430,7 @@ function stopJerkOff()
 	end
 end
 FanGroup:CreateToggle({
-    Name = "Coconut Penis",  
+    Name = "Coconut Penis (Dih) ",  
     Default = false,
     Flag = "CoconutOrbit",
     Callback = function(Value)
