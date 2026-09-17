@@ -25,11 +25,11 @@ local Window = Library:CreateWindow({
 })
 local Tabs = {
 	Defense = Window:CreateTab("defense", true, "7461510456"),
-	Target = Window:CreateTab("target Update🔥", true, "107058246184363"),
-	Grab = Window:CreateTab("grab", true, "85607241723723"), -- РќРѕРІР° С–РєРѕРЅРєР° Drag
+	Target = Window:CreateTab("target Update🔥", true, "107058246184363"),
+	Grab = Window:CreateTab("grab", true, "85607241723723"), -- ° –° Drag
 	Player = Window:CreateTab("player", true, "124871982298256"),
-	Misc = Window:CreateTab("misc", true, "114167292947807"), -- РќРѕРІР° С–РєРѕРЅРєР° Sparkles
-	Keybinds = Window:CreateTab("keybinds", true, "4814130203"), -- РќРѕРІР° С–РєРѕРЅРєР° BadgeLogo
+	Misc = Window:CreateTab("misc", true, "114167292947807"), -- ° –° Sparkles
+	Keybinds = Window:CreateTab("keybinds", true, "4814130203"), -- ° –° BadgeLogo
 	Visuals  = Window:CreateTab("visuals",  true, "7733955511"),
 }
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1179,16 +1179,62 @@ DefenseGroup:CreateToggle({
             _G.cons["antiloopkill"] = plr.CharacterAdded:Connect(function(char)
                 local hrp = char:WaitForChild("HumanoidRootPart", 5)
                 if hrp then
-                    -- Р–РґРµРј Р±СѓРєРІР°Р»СЊРЅРѕ РѕРґРёРЅ РєР°РґСЂ РїРµСЂРµРґ С‚РµР»РµРїРѕСЂС‚РѕРј
+                    -- –µ ±°»  ° µµ ‚µ»µ‚
                     RunService.RenderStepped:Wait()
                     
                     local target = CFrame.new(524.703979, 93.7120056, -375.040985)
                     hrp.CFrame = target
                     
-                    -- Р‘С‹СЃС‚СЂР°СЏ РїРѕРґСЃС‚СЂР°С…РѕРІРєР° РЅР° СЃР»РµРґСѓСЋС‰РёРµ 2 РєР°РґСЂР°
+                    -- ‘‹‚° ‚°…° ° »µ‰µ 2 °°
                     for i = 1, 2 do
                         RunService.RenderStepped:Wait()
                         hrp.CFrame = target
+                    end
+                end
+            end)
+        end
+    end
+})
+
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local plr = Players.LocalPlayer
+
+local desyncConnection
+local Desync_Active = false
+
+DefenseGroup:CreateToggle({
+    Name = "Desync",
+    Flag = "DesyncToggle",
+    Default = false,
+    Callback = function(Value)
+        if SetToggleState then
+            SetToggleState("DesyncToggle", Value)
+        end
+        Desync_Active = Value
+
+        if desyncConnection then
+            desyncConnection:Disconnect()
+            desyncConnection = nil
+        end
+
+        if Value then
+            desyncConnection = RunService.Heartbeat:Connect(function()
+                local char = plr.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+                if hrp and hum and hum.Health > 0 then
+                    local oldVelocity = hrp.AssemblyLinearVelocity
+                    
+                    -- Fake velocity sent to server to break hitboxes
+                    hrp.AssemblyLinearVelocity = Vector3.new(9999, 9999, 9999)
+                    
+                    RunService.RenderStepped:Wait()
+                    
+                    -- Restore local velocity for smooth movement
+                    if hrp and hrp.Parent then
+                        hrp.AssemblyLinearVelocity = oldVelocity
                     end
                 end
             end)
@@ -1813,7 +1859,7 @@ do
         
         Type1.systemOn = false
         
-        Library:Notify({ Title = "Anti Gucci", Description = "Blob Man Gucci (Automatic) 완료!", Time = 2 })
+        Library:Notify({ Title = "Anti Gucci", Description = "Blob Man Gucci (Automatic) !", Time = 2 })
     end
 
     -- Stop System Execution
@@ -6795,7 +6841,7 @@ do
     end
 
     MiscGroup:CreateToggle({
-        Name = "Detect packets",
+        Name = "Detect packets Normal",
         Flag = "GrabRemoteDetector",
         Default = false,
         Callback = function(Value)
@@ -6811,6 +6857,283 @@ do
     })
 end
 do
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local MiscGroup = Tabs.Misc:CreateBlock({Name = "Anti-Spam Packet Detector", Side = "Left"})
+
+local KB_THRESHOLD = 5
+local BYTE_THRESHOLD = KB_THRESHOLD * 1024
+local COOLDOWN = 30
+local MAX_PACKETS_PER_SEC = 3 -- حد الحزم المسموح بها لكل ريموت في الثانية قبل إغلاقه تلقائياً
+
+local lastNotify = 0
+local packetConnections = {}
+local remoteTracker = {} -- تتبع سرعة الإرسال لكل ريموت
+
+local function packetNotify(title, text)
+    pcall(function()
+        Library:Notify({
+            Title = title or "Packet Detected",
+            Content = text or "",
+            Duration = 7
+        })
+    end)
+end
+
+-- فحص السباك السريع (يتجاهل الحزم المزعجة فوراً لمنع اللاغ)
+local function checkSpam(remoteName)
+    local now = os.clock()
+    local data = remoteTracker[remoteName] or { count = 0, lastReset = now }
+    
+    if now - data.lastReset >= 1 then
+        data.count = 0
+        data.lastReset = now
+    end
+    
+    data.count = data.count + 1
+    remoteTracker[remoteName] = data
+    
+    -- إذا تجاوز الريموت 3 حزم في الثانية يتم التجاهل فوراً بدون أي معالجة ثقيلة
+    return data.count > MAX_PACKETS_PER_SEC
+end
+
+local function calculateByteSize(data)
+    local dataType = typeof(data)
+    if dataType == "string" then return #data
+    elseif dataType == "number" or dataType == "boolean" then return 8
+    elseif dataType == "Vector3" then return 12
+    elseif dataType == "CFrame" then return 48
+    elseif dataType == "Instance" then return 4
+    elseif dataType == "table" then
+        local total = 0
+        for k, v in pairs(data) do
+            total = total + calculateByteSize(k) + calculateByteSize(v)
+        end
+        return total
+    end
+    return 4
+end
+
+local function resolveSender(args)
+    for _, v in ipairs(args) do
+        if typeof(v) == "Instance" then
+            if v:IsA("Player") then return v end
+            local model = v:IsA("Model") and v or v:FindFirstAncestorOfClass("Model")
+            if model then
+                local plr = Players:GetPlayerFromCharacter(model)
+                if plr then return plr end
+            end
+        end
+    end
+    return LocalPlayer
+end
+
+local function shortenString(str, maxLen)
+    maxLen = maxLen or 60
+    if #str <= maxLen then return str end
+    return str:sub(1, maxLen) .. "..."
+end
+
+local function serializeTable(tbl, depth, visited)
+    depth = depth or 1
+    visited = visited or {}
+    if depth > 3 then return "{...}" end
+    if visited[tbl] then return "{*circular*}" end
+    visited[tbl] = true
+
+    local entries = {}
+    local count = 0
+
+    for k, v in pairs(tbl) do
+        count = count + 1
+        if count > 4 then
+            table.insert(entries, "...(+" .. tostring(#tbl - 4) .. ")")
+            break
+        end
+
+        local kStr = typeof(k) == "string" and k or tostring(k)
+        local vType = typeof(v)
+        local vStr = "unknown"
+
+        if vType == "string" then
+            vStr = '"' .. shortenString(v, 20) .. '"'
+        elseif vType == "Instance" then
+            vStr = v.ClassName .. "(" .. v.Name .. ")"
+        elseif vType == "table" then
+            vStr = serializeTable(v, depth + 1, visited)
+        else
+            vStr = tostring(v)
+        end
+
+        table.insert(entries, kStr .. "=" .. vStr)
+    end
+
+    return "{" .. table.concat(entries, ", ") .. "}"
+end
+
+local function compressArgs(args)
+    local summary = {}
+    for i, v in ipairs(args) do
+        local t = typeof(v)
+        local formatted = ""
+        if t == "string" then
+            formatted = string.format("[%d] String: \"%s\"", i, shortenString(v))
+        elseif t == "Instance" then
+            local cName = pcall(function() return v.ClassName end) and v.ClassName or "Instance"
+            formatted = string.format("[%d] %s: %s", i, cName, v:GetFullName())
+        elseif t == "table" then
+            formatted = string.format("[%d] Table: %s", i, serializeTable(v))
+        elseif t == "Vector3" or t == "CFrame" then
+            formatted = string.format("[%d] %s: %s", i, t, tostring(v))
+        else
+            formatted = string.format("[%d] %s: %s", i, t, tostring(v))
+        end
+        table.insert(summary, formatted)
+    end
+    return summary
+end
+
+local function handlePacketEvent(eventType, remoteName, ...)
+    -- 1. الفحص الفوري للسباك (يقتل الحزمة قبل القيام بكتلة الكود الثقيلة)
+    if checkSpam(remoteName) then return end
+
+    -- 2. التحقق من التبريد العام
+    local now = os.clock()
+    if now - lastNotify < COOLDOWN then return end
+
+    -- 3. معالجة الحجم والبيانات فقط عند تأكيد استحقاق الإشعار
+    local args = {...}
+    local totalBytes = 0
+    for _, v in ipairs(args) do
+        totalBytes = totalBytes + calculateByteSize(v)
+    end
+
+    if totalBytes < BYTE_THRESHOLD then return end
+    lastNotify = now
+
+    local sender = resolveSender(args)
+    local senderName = "Unknown"
+    if sender then
+        local s, name = pcall(function() return sender.DisplayName or sender.Name end)
+        if s then senderName = name end
+        if sender == LocalPlayer then senderName = senderName .. " (You)" end
+    end
+
+    local kbSize = totalBytes / 1024
+    local sizeStr = kbSize >= 1024 and string.format("%.3f MB", kbSize / 1024) or string.format("%.2f KB", kbSize)
+
+    local summarized = compressArgs(args)
+    local argsStr = #summarized > 0 and table.concat(summarized, "\n") or "None"
+
+    packetNotify(
+        string.format("[%s] %s", eventType, remoteName),
+        string.format("Player: %s\nSize: %s\nArgs:\n%s", senderName, sizeStr, argsStr)
+    )
+end
+
+local function checkAndHookBlobRemote(child)
+    if child:IsA("RemoteEvent") and child.Name == "RelayClientAnimation" then
+        local parent = child.Parent
+        if parent and parent.Name == "BlobmanAnimations" then
+            local grandParentName = parent.Parent and parent.Parent.Name or "Unknown"
+            table.insert(packetConnections, child.OnClientEvent:Connect(function(...) 
+                handlePacketEvent("Blob", grandParentName, ...) 
+            end))
+        end
+    end
+end
+
+local function hookAllRemotes(container)
+    for _, obj in ipairs(container:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            table.insert(packetConnections, obj.OnClientEvent:Connect(function(...)
+                handlePacketEvent("Global", obj.Name, ...)
+            end))
+        end
+    end
+end
+
+local function startPacketDetector(mode)
+    if #packetConnections > 0 then return end
+
+    if mode == "Targeted" then
+        task.spawn(function()
+            local grabEvents = ReplicatedStorage:WaitForChild("GrabEvents", 5)
+            if grabEvents then
+                local grabRemote = grabEvents:WaitForChild("ExtendGrabLine", 5)
+                if grabRemote then
+                    table.insert(packetConnections, grabRemote.OnClientEvent:Connect(function(...) 
+                        handlePacketEvent("Grab", "ExtendGrabLine", ...) 
+                    end))
+                end
+            end
+        end)
+
+        for _, child in ipairs(Workspace:GetDescendants()) do
+            checkAndHookBlobRemote(child)
+        end
+        table.insert(packetConnections, Workspace.DescendantAdded:Connect(checkAndHookBlobRemote))
+
+    elseif mode == "Global" then
+        hookAllRemotes(ReplicatedStorage)
+        hookAllRemotes(Workspace)
+        
+        table.insert(packetConnections, ReplicatedStorage.DescendantAdded:Connect(function(child)
+            if child:IsA("RemoteEvent") then
+                table.insert(packetConnections, child.OnClientEvent:Connect(function(...)
+                    handlePacketEvent("Global", child.Name, ...)
+                end))
+            end
+        end))
+    end
+end
+
+local function stopPacketDetector()
+    for _, conn in ipairs(packetConnections) do
+        if typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        end
+    end
+    table.clear(packetConnections)
+    table.clear(remoteTracker)
+end
+
+MiscGroup:CreateToggle({
+    Name = "Detect Packets (Targeted)",
+    Flag = "GrabRemoteDetector",
+    Default = false,
+    Callback = function(Value)
+        SetToggleState("GrabRemoteDetector", Value)
+        if Value then
+            startPacketDetector("Targeted")
+            packetNotify("Active", "Targeted Packet Detector Enabled")
+        else
+            stopPacketDetector()
+            packetNotify("Disabled", "Packet Detector Stopped")
+        end
+    end
+})
+
+MiscGroup:CreateToggle({
+    Name = "Detect All Packets (Global)",
+    Flag = "GlobalRemoteDetector",
+    Default = false,
+    Callback = function(Value)
+        SetToggleState("GlobalRemoteDetector", Value)
+        if Value then
+            startPacketDetector("Global")
+            packetNotify("Active", "Global Packet Detector Enabled")
+        else
+            stopPacketDetector()
+            packetNotify("Disabled", "Global Packet Detector Stopped")
+        end
+    end
+})
+
     -- =========================================================================
     -- PLOT BARRIER BYPASS (MISCGROUP)
     -- =========================================================================
@@ -6904,7 +7227,7 @@ do
     end
 
     MiscGroup:CreateButton({
-        Name = "Disable Plot Barriers",
+        Name = "Disable Plot Barriers Of it didn't work Try again.",
         Callback = function()
             notify("System", "Attempting to break barriers...", 2)
             hamburgerTeleport()
@@ -6924,13 +7247,13 @@ MiscGroup:CreateToggle({
 		if not _G.DreamyNightEffects then
 			_G.DreamyNightEffects = {}
 
-            -- РЎРР›Р¬РќР«Р™ Blur (РіР»Р°РІРЅРѕРµ!)
+            -- ›¬«™ Blur (»°µ!)
 			local Blur = Instance.new("BlurEffect")
 			Blur.Size = 6
 			Blur.Enabled = false
 			Blur.Parent = Lighting
 
-            -- Glow / Bloom (Р·РІС‘Р·РґС‹ Рё СЃРІРµС‚)
+            -- Glow / Bloom (·‘·‹  µ‚)
 			local Bloom = Instance.new("BloomEffect")
 			Bloom.Intensity = 1.6
 			Bloom.Size = 90
@@ -6938,7 +7261,7 @@ MiscGroup:CreateToggle({
 			Bloom.Enabled = false
 			Bloom.Parent = Lighting
 
-            -- ColorCorrection (РЅРѕС‡СЊ + РјСЏРіРєРѕСЃС‚СЊ)
+            -- ColorCorrection (‡ + ‚)
 			local Color = Instance.new("ColorCorrectionEffect")
 			Color.Brightness = 0.15
 			Color.Contrast = -0.1
@@ -6947,14 +7270,14 @@ MiscGroup:CreateToggle({
 			Color.Enabled = false
 			Color.Parent = Lighting
 
-            -- SunRays (Р»С‘РіРєРѕРµ СЃРІРµС‡РµРЅРёРµ)
+            -- SunRays (»‘µ µ‡µµ)
 			local SunRays = Instance.new("SunRaysEffect")
 			SunRays.Intensity = 0.05
 			SunRays.Spread = 0.6
 			SunRays.Enabled = false
 			SunRays.Parent = Lighting
 
-            -- Atmosphere (Р·РІС‘Р·РґРЅРѕРµ РЅРµР±Рѕ + haze)
+            -- Atmosphere (·‘·µ µ± + haze)
 			local Atmosphere = Instance.new("Atmosphere")
 			Atmosphere.Density = 0.45
 			Atmosphere.Offset = 0.1
@@ -7265,7 +7588,7 @@ MiscGroup:CreateSlider({
 	Min = 1,
 	Max = 120,
 	Rounding = 0,
-	Suffix = "В°",
+	Suffix = "°",
 	Callback = function(value)
 		game.Workspace.CurrentCamera.FieldOfView = value
 	end
@@ -7305,7 +7628,7 @@ local variants = {
 }
 
 -- ===============================
--- RAGALIC CLIENT вЂў KICK NOTIFY
+-- RAGALIC CLIENT  KICK NOTIFY
 -- ===============================
 
 local Players = game:GetService("Players")
@@ -7383,7 +7706,7 @@ end
 do
 local FanGroup = Tabs.Misc:CreateBlock({Name = "Troll", Side = "Left"})
 -- ===========================
--- Toggle "Jerk Off" (Fan в†’ Troll)
+-- Toggle "Jerk Off" (Fan †’ Troll)
 -- ===========================
 
 local Players = game:GetService("Players")
@@ -7391,10 +7714,10 @@ local UserInputService = game:GetService("UserInputService")
 
 local playJerkOffActive = false
 local jerkOffAnimTrack = nil
-local jerkOffAnimId = "rbxassetid://168268306" -- Р°РЅРёРјР°С†РёСЏ
-local selectedKey = Enum.KeyCode.Q -- РєР»Р°РІРёС€Р° РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
+local jerkOffAnimId = "rbxassetid://168268306" -- °°†
+local selectedKey = Enum.KeyCode.Q -- »°€°  »‡°
 
--- в–¶ Р·Р°РїСѓСЃРє Р°РЅРёРјР°С†РёРё
+-- –¶ ·° °°†
 function startJerkOff()
 	local plr = Players.LocalPlayer
 	local char = plr.Character or plr.CharacterAdded:Wait()
@@ -7422,7 +7745,7 @@ function startJerkOff()
 	end)
 end
 
--- вЏ№ РѕСЃС‚Р°РЅРѕРІРєР°
+--  ‚°°
 function stopJerkOff()
 	if jerkOffAnimTrack then
 		jerkOffAnimTrack:Stop()
@@ -7519,7 +7842,7 @@ FanGroup:CreateToggle({
         end
     end
 })
--- рџ” Toggle РІ Fan в†’ Animations
+-- ” Toggle  Fan †’ Animations
 FanGroup:CreateToggle({
 	Name = "Jerk Off",
         Flag = "Jerk Off",
@@ -7535,7 +7858,7 @@ FanGroup:CreateToggle({
 	end
 })
 -- [Fake Headless + Korblox removed]
--- вЊЁпёЏ Dropdown РІС‹Р±РѕСЂР° РєР»Р°РІРёС€Рё
+--  Dropdown ‹±° »°€
 FanGroup:CreateDropdown({
 	Name = "Toggle Key",
         Flag = "Toggle Key",
@@ -7551,7 +7874,7 @@ FanGroup:CreateDropdown({
 	end
 })
 
--- вЊЁпёЏ РљРµР№Р±РёРЅРґ
+--  µ±
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then
 		return
@@ -7571,7 +7894,7 @@ end
 
 
 -- ===========================
--- РџРµСЂРµРјРµРЅРЅС‹Рµ СЃРѕСЃС‚РѕСЏРЅРёСЏ
+-- µµµ‹µ ‚
 -- ===========================
 local removeAntiKickAuraActive = false
 local removeAntiKickAuraConnection = nil
@@ -7848,7 +8171,7 @@ local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local Mouse = Player:GetMouse()
 
-local tpEnabled = true -- РјРѕР¶РЅРѕ СѓР±СЂР°С‚СЊ, РµСЃР»Рё РЅРµ РЅСѓР¶РµРЅ on/off
+local tpEnabled = true -- ¶ ±°‚, µ» µ ¶µ on/off
 
 KeybindsGroup:CreateKeybind({
 	Name = "Teleport to Mouse",
@@ -8609,7 +8932,7 @@ function playAnimation()
 	currentTrack.Looped = true
 	currentTrack:Play()
 
-    -- рџ”Ѓ FORCE LOOP (flight safe)
+    -- ” FORCE LOOP (flight safe)
 	task.spawn(function()
 		while animEnabled and currentTrack do
 			if currentTrack.TimePosition > 0.9 then
@@ -8670,7 +8993,7 @@ AnimationsGroup:CreateDropdown({
 })
 
 -- =========================
--- KEYBIND DROPDOWN вњ…
+-- KEYBIND DROPDOWN …
 -- =========================
 AnimationsGroup:CreateDropdown({
 	Name = "Toggle Key",
@@ -8730,19 +9053,19 @@ function SitOnBlobman()
 		return
 	end
 
-    -- СѓР¶Рµ СЃРёРґРёРј
+    -- ¶µ 
 	if hum.SeatPart then
 		return
 	end
 
-    -- РёС‰РµРј Р‘Р›РР–РђР™РЁР•Р“Рћ
+    -- ‰µ ‘›–™•“
 	local blob = getNearestBlobman(40)
 	if not blob then
 		warn("Blobman not found nearby")
 		return
 	end
 
-    -- РёС‰РµРј СЃРёРґ
+    -- ‰µ 
 	local seat =
         blob:FindFirstChildWhichIsA("Seat", true)
         or blob:FindFirstChildWhichIsA("VehicleSeat", true)
@@ -8751,11 +9074,11 @@ function SitOnBlobman()
 		return
 	end
 
-    -- С‚РµР»РµРїРѕСЂС‚ Р РЇР”РћРњ СЃ Р±Р»РѕР±РѕРј (РЅРµ РІ РµР±РµРЅСЏ)
+    -- ‚µ»µ‚  ”  ±»± (µ  µ±µ)
 	hrp.CFrame = seat.CFrame * CFrame.new(0, 1.2, -1)
 	task.wait(0.05)
 
-    -- РџР РРќРЈР”РРўР•Р›Р¬РќРђРЇ РџРћРЎРђР”РљРђ
+    --  ”•›¬ ”
 	pcall(function()
 		seat:Sit(hum)
 	end)
@@ -8812,11 +9135,11 @@ AnimationsGroup:CreateToggle({
 			return
 		end
 		if on then
-            -- РїР°РґР°РµРј РєР°Рє РјС‘СЂС‚РІС‹Р№
+            -- °°µ ° ‘‚‹
 			hum:ChangeState(Enum.HumanoidStateType.Physics)
 			hum.PlatformStand = true
 		else
-            -- РІСЃС‚Р°С‘Рј РѕР±СЂР°С‚РЅРѕ
+            -- ‚°‘ ±°‚
 			hum.PlatformStand = false
 			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		end
@@ -8859,10 +9182,10 @@ local Players = game:GetService("Players")
 
 local playBangActive = false
 local bangAnimTrack = nil
-local bangAnimId = "rbxassetid://148840371" -- Bang РёР· Infinite Yield
-local bangSpeed = 10-- рџ”Ґ РЎРљРћР РћРЎРўР¬ (1 = РЅРѕСЂРјР°Р»СЊРЅРѕ, 0.3вЂ“0.5 РјРµРґР»РµРЅРЅРѕ)
+local bangAnimId = "rbxassetid://148840371" -- Bang · Infinite Yield
+local bangSpeed = 10-- ”  ¬ (1 = °», 0.3“0.5 µ»µ)
 
--- в–¶ Р·Р°РїСѓСЃРє Р°РЅРёРјР°С†РёРё
+-- –¶ ·° °°†
 function startBang()
 	local plr = Players.LocalPlayer
 	local char = plr.Character or plr.CharacterAdded:Wait()
@@ -8880,7 +9203,7 @@ function startBang()
 	bangAnimTrack = animator:LoadAnimation(anim)
 	bangAnimTrack.Priority = Enum.AnimationPriority.Action
 	bangAnimTrack:Play()
-	bangAnimTrack:AdjustSpeed(bangSpeed) -- рџђў Р·Р°РјРµРґР»РµРЅРёРµ
+	bangAnimTrack:AdjustSpeed(bangSpeed) --  ·°µ»µµ
 
     -- Infinite Yield loop
 	task.spawn(function()
@@ -8893,7 +9216,7 @@ function startBang()
 	end)
 end
 
--- вЏ№ РѕСЃС‚Р°РЅРѕРІРєР°
+--  ‚°°
 function stopBang()
 	if bangAnimTrack then
 		bangAnimTrack:Stop()
@@ -8901,7 +9224,7 @@ function stopBang()
 	end
 end
 
--- рџ” Toggle
+-- ” Toggle
 TrollExtraGroup:CreateToggle({
 	Name = "Bang (Slow)",
         Flag = "Bang (Slow)",
@@ -9118,7 +9441,7 @@ do
         if Visuals.FullBrightEnabled then Lighting.Brightness=3; Lighting.GlobalShadows=false; Lighting.OutdoorAmbient=Color3.new(1,1,1); Lighting.ExposureCompensation=0.3 end
     end)
 
-    -- в”Ђв”Ђ UI в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” UI ””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””””
     local VisHatTrail=Tabs.Visuals:CreateBlock({Name="Hat & Trail",Side="Left"})
     local VisSkinAura=Tabs.Visuals:CreateBlock({Name="Skin & Aura",Side="Right"})
     local VisWorld=Tabs.Visuals:CreateBlock({Name="World",Side="Left"})
@@ -9182,7 +9505,7 @@ do
 
     local FX_defs = {}
 
-    -- в”Ђв”Ђ 1. Orbit Rings в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 1. Orbit Rings ”””””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Orbit Rings"] = function()
         local char = Player.Character
         local hrp  = char and char:FindFirstChild("HumanoidRootPart")
@@ -9215,7 +9538,7 @@ do
         table.insert(Visuals.FX.Connections, conn)
     end
 
-    -- в”Ђв”Ђ 2. Lightning Body в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 2. Lightning Body ””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Lightning Body"] = function()
         local char = Player.Character
         if not char then return end
@@ -9246,7 +9569,7 @@ do
         end
     end
 
-    -- в”Ђв”Ђ 3. Glitch Effect в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 3. Glitch Effect ”””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Glitch Effect"] = function()
         local conn = R.Heartbeat:Connect(function()
             local char=Player.Character
@@ -9261,7 +9584,7 @@ do
         table.insert(Visuals.FX.Connections, conn)
     end
 
-    -- в”Ђв”Ђ 4. Fire Aura в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 4. Fire Aura ”””””””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Fire Aura"] = function()
         local char=Player.Character
         if not char then return end
@@ -9279,7 +9602,7 @@ do
         end
     end
 
-    -- в”Ђв”Ђ 5. Rainbow Body в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 5. Rainbow Body ””””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Rainbow Body"] = function()
         local char=Player.Character
         if not char then return end
@@ -9314,7 +9637,7 @@ do
         table.insert(Visuals.FX.Parts, sentinel)
     end
 
-    -- в”Ђв”Ђ 6. Bubble Shield в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 6. Bubble Shield ”””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Bubble Shield"] = function()
         local char=Player.Character
         local hrp=char and char:FindFirstChild("HumanoidRootPart")
@@ -9341,7 +9664,7 @@ do
         table.insert(Visuals.FX.Connections, conn)
     end
 
-    -- в”Ђв”Ђ 7. Star Burst в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 7. Star Burst ”””””””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Star Burst"] = function()
         local char=Player.Character
         local hrp=char and char:FindFirstChild("HumanoidRootPart")
@@ -9376,7 +9699,7 @@ do
         table.insert(Visuals.FX.Connections,conn)
     end
 
-    -- в”Ђв”Ђ 8. Ice Shards в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 8. Ice Shards ””””””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Ice Shards"] = function()
         local char=Player.Character
         local hrp=char and char:FindFirstChild("HumanoidRootPart")
@@ -9405,7 +9728,7 @@ do
         table.insert(Visuals.FX.Connections,conn)
     end
 
-    -- в”Ђв”Ђ 9. Shadow Clones в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 9. Shadow Clones ”””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Shadow Clones"] = function()
         local char=Player.Character
         if not char then return end
@@ -9450,7 +9773,7 @@ do
         table.insert(Visuals.FX.Connections,conn)
     end
 
-    -- в”Ђв”Ђ 10. Meteor Rain в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    -- ”” 10. Meteor Rain ””””””””””””””””””””””””””””””””””””””””””””””””””
     FX_defs["Meteor Rain"] = function()
         local alive=true
         local sentinel={Destroy=function() alive=false end}
