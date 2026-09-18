@@ -25,7 +25,7 @@ local Window = Library:CreateWindow({
 })
 local Tabs = {
 	Defense = Window:CreateTab("defense", true, "7461510456"),
-	Target = Window:CreateTab("target Update🔥", true, "107058246184363"),
+	Target = Window:CreateTab("target Update", true, "107058246184363"),
 	Grab = Window:CreateTab("grab", true, "85607241723723"), -- ° –° Drag
 	Player = Window:CreateTab("player", true, "124871982298256"),
 	Misc = Window:CreateTab("misc", true, "114167292947807"), -- ° –° Sparkles
@@ -625,7 +625,7 @@ do
     local antibananaSit = false
 
     DefenseGroup:CreateToggle({
-        Name = "Anti Banana [SIT]",
+        Name = "Anti Banana OP",
         Flag = "AntiBananaSit",
         Default = false,
         Callback = function(Value)
@@ -765,7 +765,7 @@ DefenseGroup:CreateToggle({
     end
 })
 DefenseGroup:CreateToggle({
-    Name = "Auto Leave  (When U get Kick u Get Kick Before u get ban)",
+    Name = "Auto Leave",
     Flag = "Auto Leave",
     Default = false,
     Callback = function(v)
@@ -1204,7 +1204,7 @@ local desyncConnection
 local Desync_Active = false
 
 DefenseGroup:CreateToggle({
-    Name = "Desync",
+    Name = "Desync (Flinging)",
     Flag = "DesyncToggle",
     Default = false,
     Callback = function(Value)
@@ -3743,6 +3743,147 @@ BlobGroup:CreateToggle({
         end
     end
 })
+
+BlobGroup:CreateToggle({
+    Name = "Orbit Kick (Blob)",
+    Flag = "OrbitKickFetch25",
+    Default = false,
+    Callback = function(on)
+        SetToggleState("Orbit Kick (Fetch + 25 Height)", on)
+        orbitKickActive = on
+
+        if on then
+            if not selectedKickPlayer then
+                if notify then notify("Error", "Select target first", 3) end
+                SetToggleState("Orbit Kick (Fetch + 25 Height)", false)
+                return
+            end
+
+            task.spawn(function()
+                local RunService = game:GetService("RunService")
+                local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                local GrabEvents = ReplicatedStorage:FindFirstChild("GrabEvents")
+
+                local savedPos = nil
+
+                while orbitKickActive do
+                    local target = selectedKickPlayer
+                    local char = (game:GetService("Players").LocalPlayer or Player).Character
+                    local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+                    local seat = char and char:FindFirstChildOfClass("Humanoid") and char.Humanoid.SeatPart
+
+                    if not target or not target.Character or not myHRP then
+                        task.wait(0.5)
+                        continue
+                    end
+
+                    local tChar = target.Character
+                    local tHRP = tChar:FindFirstChild("HumanoidRootPart")
+                    local tHum = tChar:FindFirstChild("Humanoid")
+
+                    if tHRP and tHum and tHum.Health > 0 then
+                        if not savedPos then savedPos = myHRP.CFrame end
+
+                        local dist = (tHRP.Position - myHRP.Position).Magnitude
+
+                        -- 1. TELEPORT TO TARGET (Fetch Player First)
+                        if dist > 20 then
+                            myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 2, 4)
+                            if GrabEvents then
+                                pcall(function()
+                                    GrabEvents.SetNetworkOwner:FireServer(tHRP, tHRP.CFrame)
+                                    GrabEvents.DestroyGrabLine:FireServer(tHRP)
+                                end)
+                            end
+                            task.wait(0.1)
+                            continue
+                        end
+
+                        -- 2. LOCK TARGET AT 25 HEIGHT ABOVE SAVED POS
+                        local targetPos = savedPos.Position + Vector3.new(0, 25, 0)
+
+                        local kickbp = tHRP:FindFirstChild("XOCU_OrbitBP")
+                        if not kickbp then
+                            kickbp = Instance.new("BodyPosition")
+                            kickbp.Name = "XOCU_OrbitBP"
+                            kickbp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                            kickbp.D = 150
+                            kickbp.P = 10000
+                            kickbp.Parent = tHRP
+                        end
+                        kickbp.Position = targetPos
+
+                        local kickbg = tHRP:FindFirstChild("XOCU_OrbitBG")
+                        if not kickbg then
+                            kickbg = Instance.new("BodyGyro")
+                            kickbg.Name = "XOCU_OrbitBG"
+                            kickbg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                            kickbg.D = 50
+                            kickbg.Parent = tHRP
+                        end
+                        kickbg.CFrame = CFrame.new()
+
+                        tHRP.AssemblyLinearVelocity = Vector3.zero
+                        if GrabEvents then
+                            pcall(function()
+                                GrabEvents.SetNetworkOwner:FireServer(tHRP, targetPos)
+                                GrabEvents.DestroyGrabLine:FireServer(tHRP)
+                            end)
+                        end
+
+                        -- 3. SPIN ORBIT AROUND TARGET AT 25 HEIGHT
+                        local angle = tick() * 12
+                        local orbitPos = targetPos + Vector3.new(math.cos(angle) * 6, 0, math.sin(angle) * 6)
+                        myHRP.CFrame = CFrame.lookAt(orbitPos, targetPos)
+
+                        -- 4. SPAM BLOBMAN GRAB
+                        if seat then
+                            local blobman = seat.Parent
+                            local remoteFolder = blobman:FindFirstChild("BlobmanSeatAndOwnerScript")
+                            local grab = remoteFolder and remoteFolder:FindFirstChild("CreatureGrab")
+                            local drop = remoteFolder and (remoteFolder:FindFirstChild("CreatureDrop") or remoteFolder:FindFirstChild("CreatureRelease"))
+
+                            local L_Det = blobman:FindFirstChild("LeftDetector")
+                            local R_Det = blobman:FindFirstChild("RightDetector")
+
+                            local L_Weld = L_Det and (L_Det:FindFirstChild("LeftWeld") or L_Det:FindFirstChild("RigidConstraint"))
+                            local R_Weld = R_Det and (R_Det:FindFirstChild("RightWeld") or R_Det:FindFirstChild("RigidConstraint"))
+
+                            if grab and drop and L_Weld and R_Weld then
+                                pcall(function()
+                                    grab:FireServer(L_Det, tHRP, L_Weld)
+                                    grab:FireServer(R_Det, tHRP, R_Weld)
+                                    drop:FireServer(L_Weld, tHRP)
+                                    drop:FireServer(R_Weld, tHRP)
+                                end)
+                            end
+                        end
+                    end
+
+                    RunService.Heartbeat:Wait()
+                end
+
+                -- CLEANUP & TELEPORT BACK
+                if savedPos and myHRP then
+                    myHRP.CFrame = savedPos
+                end
+                local target = selectedKickPlayer
+                if target and target.Character then
+                    local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                    if tHRP then
+                        if tHRP:FindFirstChild("XOCU_OrbitBP") then tHRP.XOCU_OrbitBP:Destroy() end
+                        if tHRP:FindFirstChild("XOCU_OrbitBG") then tHRP.XOCU_OrbitBG:Destroy() end
+                    end
+                end
+                orbitKickActive = false
+            end)
+        else
+            orbitKickActive = false
+        end
+    end
+})
+
+
 
 BlobGroup:CreateToggle({
     Name = "Kill Blob [Fast]",
@@ -6868,11 +7009,11 @@ local MiscGroup = Tabs.Misc:CreateBlock({Name = "Anti-Spam Packet Detector", Sid
 local KB_THRESHOLD = 5
 local BYTE_THRESHOLD = KB_THRESHOLD * 1024
 local COOLDOWN = 30
-local MAX_PACKETS_PER_SEC = 3 -- حد الحزم المسموح بها لكل ريموت في الثانية قبل إغلاقه تلقائياً
+local MAX_PACKETS_PER_SEC = 3 --           
 
 local lastNotify = 0
 local packetConnections = {}
-local remoteTracker = {} -- تتبع سرعة الإرسال لكل ريموت
+local remoteTracker = {} --     
 
 local function packetNotify(title, text)
     pcall(function()
@@ -6884,7 +7025,7 @@ local function packetNotify(title, text)
     end)
 end
 
--- فحص السباك السريع (يتجاهل الحزم المزعجة فوراً لمنع اللاغ)
+--    (     )
 local function checkSpam(remoteName)
     local now = os.clock()
     local data = remoteTracker[remoteName] or { count = 0, lastReset = now }
@@ -6897,7 +7038,7 @@ local function checkSpam(remoteName)
     data.count = data.count + 1
     remoteTracker[remoteName] = data
     
-    -- إذا تجاوز الريموت 3 حزم في الثانية يتم التجاهل فوراً بدون أي معالجة ثقيلة
+    --    3          
     return data.count > MAX_PACKETS_PER_SEC
 end
 
@@ -6998,14 +7139,14 @@ local function compressArgs(args)
 end
 
 local function handlePacketEvent(eventType, remoteName, ...)
-    -- 1. الفحص الفوري للسباك (يقتل الحزمة قبل القيام بكتلة الكود الثقيلة)
+    -- 1.    (      )
     if checkSpam(remoteName) then return end
 
-    -- 2. التحقق من التبريد العام
+    -- 2.    
     local now = os.clock()
     if now - lastNotify < COOLDOWN then return end
 
-    -- 3. معالجة الحجم والبيانات فقط عند تأكيد استحقاق الإشعار
+    -- 3.        
     local args = {...}
     local totalBytes = 0
     for _, v in ipairs(args) do
