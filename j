@@ -4983,7 +4983,144 @@ do
         if connection then connection:Disconnect() end
         return spawnedObject
     end
+     
+    TargetGroup:CreateToggle({
+    Name = "Spin Kick Grab (it will be faster Lag Line)",
+    Flag = "orbit_kick_fast_25",
+    Default = false,
+    Callback = function(on)
+        orbitKickActive = on
 
+        if on then
+            if not selectedKickPlayer then
+                if notify then notify("Error", "Select target first", 3) end
+                return
+            end
+
+            orbitKickTask = task.spawn(function()
+                local target = selectedKickPlayer
+                local tChar = target.Character
+                local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+                local tHum = tChar and tChar:FindFirstChild("Humanoid")
+
+                local myChar = plr.Character or plr.CharacterAdded:Wait()
+                local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+
+                if not (tRoot and tHum and myHRP) then return end
+
+                local savedPos = myHRP.CFrame
+
+                -- 1. TELEPORT TO TARGET FIRST (الذهاب للاعب وأخذ الملكية)
+                if (tRoot.Position - myHRP.Position).Magnitude > 20 then
+                    myHRP.CFrame = tRoot.CFrame * CFrame.new(0, 2, 4)
+                    sno(tRoot)
+                    unsno(tRoot)
+                    task.wait(0.15)
+                end
+
+                local radius = 6
+                local speed = 14
+
+                while orbitKickActive and target and target.Parent and tHum.Health > 0 do
+                    myChar = plr.Character
+                    myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                    tChar = target.Character
+                    tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+
+                    if not (myHRP and tRoot) then break end
+
+                    -- تثبيت الموقع عند ارتفاع 25 فوق موقعك المحفوظ
+                    local lockPos = savedPos.Position + Vector3.new(0, 25, 0)
+
+                    -- 2. BODYPOSITION & BODYGYRO LOCKING
+                    local kickbp = tRoot:FindFirstChild("XOCU_FastBP")
+                    if not kickbp then
+                        kickbp = Instance.new("BodyPosition")
+                        kickbp.Name = "XOCU_FastBP"
+                        kickbp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        kickbp.D = 150
+                        kickbp.P = 10000
+                        kickbp.Parent = tRoot
+                    end
+                    kickbp.Position = lockPos
+
+                    local kickbg = tRoot:FindFirstChild("XOCU_FastBG")
+                    if not kickbg then
+                        kickbg = Instance.new("BodyGyro")
+                        kickbg.Name = "XOCU_FastBG"
+                        kickbg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                        kickbg.D = 50
+                        kickbg.Parent = tRoot
+                    end
+                    kickbg.CFrame = CFrame.new()
+
+                    -- تصفير فيزياء الهدف واستخدام دالّات الملكية الخاصة بك
+                    tRoot.AssemblyLinearVelocity = Vector3.zero
+                    sno(tRoot)
+                    unsno(tRoot)
+
+                    -- 3. SPIN ORBIT AROUND TARGET AT 25 HEIGHT
+                    local angle = tick() * speed
+                    local orbitPos = lockPos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+                    myHRP.CFrame = CFrame.lookAt(orbitPos, lockPos)
+
+                    -- 4. SPAM BLOBMAN GRAB (في حال كنت راكب بلوبمان)
+                    local seat = myChar:FindFirstChildOfClass("Humanoid") and myChar.Humanoid.SeatPart
+                    if seat then
+                        local blobman = seat.Parent
+                        local remoteFolder = blobman:FindFirstChild("BlobmanSeatAndOwnerScript")
+                        local grab = remoteFolder and remoteFolder:FindFirstChild("CreatureGrab")
+                        local drop = remoteFolder and (remoteFolder:FindFirstChild("CreatureDrop") or remoteFolder:FindFirstChild("CreatureRelease"))
+
+                        local L_Det = blobman:FindFirstChild("LeftDetector")
+                        local R_Det = blobman:FindFirstChild("RightDetector")
+                        local L_Weld = L_Det and (L_Det:FindFirstChild("LeftWeld") or L_Det:FindFirstChild("RigidConstraint"))
+                        local R_Weld = R_Det and (R_Det:FindFirstChild("RightWeld") or R_Det:FindFirstChild("RigidConstraint"))
+
+                        if grab and drop and L_Weld and R_Weld then
+                            pcall(function()
+                                grab:FireServer(L_Det, tRoot, L_Weld)
+                                grab:FireServer(R_Det, tRoot, R_Weld)
+                                drop:FireServer(L_Weld, tRoot)
+                                drop:FireServer(R_Weld, tRoot)
+                            end)
+                        end
+                    end
+
+                    RunService.Heartbeat:Wait()
+                end
+
+                -- CLEANUP
+                if myHRP and savedPos then
+                    myHRP.CFrame = savedPos
+                end
+                if target and target.Character then
+                    local tr = target.Character:FindFirstChild("HumanoidRootPart")
+                    if tr then
+                        if tr:FindFirstChild("XOCU_FastBP") then tr.XOCU_FastBP:Destroy() end
+                        if tr:FindFirstChild("XOCU_FastBG") then tr.XOCU_FastBG:Destroy() end
+                    end
+                end
+                orbitKickActive = false
+            end)
+        else
+            orbitKickActive = false
+            if orbitKickTask then
+                task.cancel(orbitKickTask)
+                orbitKickTask = nil
+            end
+
+            if selectedKickPlayer and selectedKickPlayer.Character then
+                local tRoot = selectedKickPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if tRoot then
+                    if tRoot:FindFirstChild("XOCU_FastBP") then tRoot.XOCU_FastBP:Destroy() end
+                    if tRoot:FindFirstChild("XOCU_FastBG") then tRoot.XOCU_FastBG:Destroy() end
+                end
+            end
+        end
+    end
+})
+    
     -- ==========================================
     -- TARGET GROUP UI INTEGRATION
     -- ==========================================
